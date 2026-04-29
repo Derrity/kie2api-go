@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  kie2api:
+    build: .
+    image: kie2api:latest
+    container_name: kie2api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"  # Web Console
+      - "4142:4142"  # Proxy API
+    volumes:
+      - ./data:/data
+    environment:
+      # 设为非空开启上游请求/响应调试日志
+      # KIE2API_DEBUG: "1"
+      KIE2API_DATA_DIR: /data

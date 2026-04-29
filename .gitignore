@@ -1,0 +1,9 @@
+/kie2api
+/kie2api-go
+/kie2api.exe
+/kie2api-go.exe
+*.test
+*.out
+.DS_Store
+/data/
+/tmp/

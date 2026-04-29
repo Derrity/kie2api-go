@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>kie2api · KIE.AI 双协议代理</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .group-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+    .badge-Claude { background: #fef3c7; color: #92400e; }
+    .badge-GPT { background: #dcfce7; color: #166534; }
+    .badge-GPT.Codex { background: #ddd6fe; color: #5b21b6; }
+    .badge-Gemini { background: #dbeafe; color: #1e40af; }
+    .badge-Other { background: #f3f4f6; color: #374151; }
+    .proto-pill { font-size: 10px; padding: 1px 5px; border-radius: 3px; background:#f1f5f9; color:#475569;}
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div class="max-w-4xl mx-auto p-6 space-y-6">
+    <header class="flex items-baseline justify-between">
+      <div>
+        <h1 class="text-2xl font-bold">kie2api</h1>
+        <p class="text-sm text-slate-500">KIE.AI Chat 模型 → OpenAI / Anthropic 双协议代理</p>
+      </div>
+      <a class="text-xs text-slate-400 hover:text-slate-600" href="https://docs.kie.ai/market/chat" target="_blank">KIE.AI 文档 ↗</a>
+    </header>
+
+    <section class="bg-white rounded-lg shadow p-5 space-y-4">
+      <h2 class="text-lg font-semibold">1. KIE.AI API Key</h2>
+      <div class="flex gap-2">
+        <input id="kie-key" type="password" placeholder="sk-..."
+          class="flex-1 border rounded px-3 py-2 text-sm font-mono" />
+        <button id="save-kie" class="bg-slate-900 text-white px-4 py-2 rounded text-sm hover:bg-slate-700">保存</button>
+        <button id="test" class="border px-4 py-2 rounded text-sm hover:bg-slate-100">连通性测试</button>
+      </div>
+      <div id="kie-current" class="text-xs text-slate-500"></div>
+      <div id="test-result" class="text-xs"></div>
+    </section>
+
+    <section class="bg-white rounded-lg shadow p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold">2. 启用模型</h2>
+        <div class="space-x-2 text-xs">
+          <button id="select-all" class="text-slate-500 hover:text-slate-900">全选</button>
+          <button id="select-none" class="text-slate-500 hover:text-slate-900">清空</button>
+        </div>
+      </div>
+      <div id="models" class="grid grid-cols-1 md:grid-cols-2 gap-2"></div>
+      <div class="flex justify-end">
+        <button id="save-models" class="bg-slate-900 text-white px-4 py-2 rounded text-sm hover:bg-slate-700">保存启用列表</button>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-lg shadow p-5 space-y-4">
+      <h2 class="text-lg font-semibold">3. 代理 API Key（客户端使用）</h2>
+      <div class="flex gap-2 items-center">
+        <code id="proxy-key" class="flex-1 bg-slate-100 px-3 py-2 rounded text-sm font-mono break-all"></code>
+        <button id="copy-key" class="border px-3 py-2 rounded text-sm hover:bg-slate-100">复制</button>
+        <button id="regen-key" class="border px-3 py-2 rounded text-sm hover:bg-slate-100">重新生成</button>
+      </div>
+      <details class="text-xs text-slate-600">
+        <summary class="cursor-pointer">高级选项（上游地址 / HTTP 代理）</summary>
+        <div class="mt-3 space-y-2">
+          <label class="block">
+            <span class="text-slate-500">Upstream Base</span>
+            <input id="upstream-base" class="w-full border rounded px-3 py-2 text-sm font-mono mt-1" />
+          </label>
+          <label class="block">
+            <span class="text-slate-500">HTTP Proxy（可选，例：http://127.0.0.1:7890）</span>
+            <input id="http-proxy" class="w-full border rounded px-3 py-2 text-sm font-mono mt-1" />
+          </label>
+          <button id="save-advanced" class="bg-slate-900 text-white px-3 py-1.5 rounded text-xs hover:bg-slate-700">保存高级选项</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="bg-white rounded-lg shadow p-5 space-y-3 text-sm">
+      <h2 class="text-lg font-semibold">4. 接入示例</h2>
+      <div>
+        <p class="font-medium">OpenAI 兼容（Codex / OpenCode / Hermes-OpenAI 客户端）</p>
+        <pre class="bg-slate-900 text-slate-100 rounded p-3 text-xs overflow-x-auto"><code id="ex-openai"></code></pre>
+      </div>
+      <div>
+        <p class="font-medium">Anthropic 兼容（Claude Code / Hermes-Anthropic 客户端）</p>
+        <pre class="bg-slate-900 text-slate-100 rounded p-3 text-xs overflow-x-auto"><code id="ex-anthropic"></code></pre>
+      </div>
+    </section>
+
+    <footer class="text-center text-xs text-slate-400 pt-4">
+      kie2api-go · 仅本地使用，请勿暴露 proxy key 至公网。
+    </footer>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let state = null;
+
+    async function api(path, opts) {
+      const r = await fetch(path, opts || {});
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    }
+
+    function render() {
+      const proxyHost = window.location.host.replace(/:\d+$/, '') || 'localhost';
+      const proxyPort = state.proxy_port || 4142;
+      const base = `http://${proxyHost}:${proxyPort}`;
+      $('proxy-key').textContent = state.proxy_key;
+      $('upstream-base').value = state.upstream_base || '';
+      $('http-proxy').value = state.http_proxy || '';
+      $('kie-current').textContent = state.has_kie_key
+        ? `当前 KIE Key：${state.kie_key_preview}`
+        : '尚未配置 KIE.AI API Key';
+
+      const grouped = {};
+      for (const m of state.all_models) {
+        (grouped[m.group] ||= []).push(m);
+      }
+      const enabled = new Set(state.enabled_models || []);
+      const container = $('models');
+      container.innerHTML = '';
+      for (const [g, list] of Object.entries(grouped)) {
+        const h = document.createElement('div');
+        h.className = 'col-span-full text-xs uppercase tracking-wider text-slate-500 mt-2';
+        h.textContent = g;
+        container.appendChild(h);
+        for (const m of list) {
+          const id = `m_${m.id}`;
+          const wrap = document.createElement('label');
+          wrap.className = 'flex items-center gap-2 px-3 py-2 border rounded cursor-pointer hover:bg-slate-50';
+          wrap.innerHTML = `
+            <input type="checkbox" id="${id}" ${enabled.has(m.id) ? 'checked' : ''} />
+            <span class="font-mono text-sm">${m.id}</span>
+            <span class="proto-pill ml-auto">${m.proto.replace('openai_', 'oai-')}</span>
+          `;
+          container.appendChild(wrap);
+        }
+      }
+
+      $('ex-openai').textContent =
+`curl ${base}/v1/chat/completions \\
+  -H "Authorization: Bearer ${state.proxy_key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-5-2",
+    "messages": [{"role":"user","content":"hello"}],
+    "stream": true
+  }'
+
+# OpenCode / Hermes / Codex
+export OPENAI_BASE_URL=${base}/v1
+export OPENAI_API_KEY=${state.proxy_key}`;
+      $('ex-anthropic').textContent =
+`curl ${base}/v1/messages \\
+  -H "x-api-key: ${state.proxy_key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 1024,
+    "messages": [{"role":"user","content":"hello"}]
+  }'
+
+# Claude Code / Hermes-Anthropic
+export ANTHROPIC_BASE_URL=${base}
+export ANTHROPIC_AUTH_TOKEN=${state.proxy_key}
+export ANTHROPIC_MODEL=claude-sonnet-4-6`;
+    }
+
+    async function load() {
+      state = await api('/api/config');
+      render();
+    }
+
+    $('save-kie').onclick = async () => {
+      const k = $('kie-key').value.trim();
+      if (!k) return alert('请输入 KIE API Key');
+      state = await api('/api/config', {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({kie_api_key: k})
+      });
+      $('kie-key').value = '';
+      render();
+    };
+
+    $('test').onclick = async () => {
+      $('test-result').textContent = '测试中...';
+      try {
+        const r = await api('/api/test', {method: 'POST'});
+        $('test-result').textContent = `上游 HTTP ${r.upstream_status}：${(r.upstream_body || '').slice(0, 200)}`;
+        $('test-result').className = r.upstream_status === 200 ? 'text-xs text-green-700' : 'text-xs text-red-600';
+      } catch (e) {
+        $('test-result').textContent = '失败：' + e.message;
+        $('test-result').className = 'text-xs text-red-600';
+      }
+    };
+
+    $('save-models').onclick = async () => {
+      const ids = state.all_models.map(m => m.id).filter(id => $(`m_${id}`)?.checked);
+      state = await api('/api/config', {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({enabled_models: ids})
+      });
+      render();
+    };
+
+    $('select-all').onclick = (e) => {
+      e.preventDefault();
+      state.all_models.forEach(m => $(`m_${m.id}`).checked = true);
+    };
+    $('select-none').onclick = (e) => {
+      e.preventDefault();
+      state.all_models.forEach(m => $(`m_${m.id}`).checked = false);
+    };
+
+    $('copy-key').onclick = async () => {
+      await navigator.clipboard.writeText(state.proxy_key);
+      $('copy-key').textContent = '已复制';
+      setTimeout(() => $('copy-key').textContent = '复制', 1200);
+    };
+
+    $('regen-key').onclick = async () => {
+      if (!confirm('重新生成会让现有客户端立即失效，继续？')) return;
+      const r = await api('/api/proxy-key/regenerate', {method: 'POST'});
+      state.proxy_key = r.proxy_key;
+      render();
+    };
+
+    $('save-advanced').onclick = async () => {
+      state = await api('/api/config', {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          upstream_base: $('upstream-base').value.trim(),
+          http_proxy: $('http-proxy').value.trim(),
+        })
+      });
+      render();
+    };
+
+    load();
+  </script>
+</body>
+</html>
