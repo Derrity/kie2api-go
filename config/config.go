@@ -18,6 +18,9 @@ type Config struct {
 	UpstreamBase  string   `json:"upstream_base"`
 	EnabledModels []string `json:"enabled_models"`
 	HTTPProxy     string   `json:"http_proxy,omitempty"`
+	// WebPassword guards the /api/* endpoints of the web console.
+	// Stored in plaintext (the console host is trusted).
+	WebPassword string `json:"web_password,omitempty"`
 }
 
 type Store struct {

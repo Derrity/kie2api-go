@@ -17,13 +17,31 @@
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
-  <div class="max-w-4xl mx-auto p-6 space-y-6">
+  <!-- Login overlay (hidden by default) -->
+  <div id="login" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 space-y-4">
+      <div>
+        <h2 class="text-lg font-semibold">kie2api 控制台</h2>
+        <p class="text-xs text-slate-500 mt-1">请输入控制台密码</p>
+      </div>
+      <input id="login-pw" type="password" autocomplete="current-password"
+        class="w-full border rounded px-3 py-2 text-sm font-mono" placeholder="控制台密码" />
+      <div id="login-err" class="text-xs text-red-600 hidden"></div>
+      <button id="login-btn" class="w-full bg-slate-900 text-white px-4 py-2 rounded text-sm hover:bg-slate-700">登录</button>
+      <p class="text-[11px] text-slate-400">首次启动时服务器会在日志里打印随机密码。</p>
+    </div>
+  </div>
+
+  <div id="app" class="max-w-4xl mx-auto p-6 space-y-6">
     <header class="flex items-baseline justify-between">
       <div>
         <h1 class="text-2xl font-bold">kie2api</h1>
         <p class="text-sm text-slate-500">KIE.AI Chat 模型 → OpenAI / Anthropic 双协议代理</p>
       </div>
-      <a class="text-xs text-slate-400 hover:text-slate-600" href="https://docs.kie.ai/market/chat" target="_blank">KIE.AI 文档 ↗</a>
+      <div class="flex items-center gap-3 text-xs">
+        <a class="text-slate-400 hover:text-slate-600" href="https://docs.kie.ai/market/chat" target="_blank">KIE.AI 文档 ↗</a>
+        <button id="logout" class="text-slate-400 hover:text-red-600">退出登录</button>
+      </div>
     </header>
 
     <section class="bg-white rounded-lg shadow p-5 space-y-4">
@@ -87,8 +105,21 @@
       </div>
     </section>
 
+    <section class="bg-white rounded-lg shadow p-5 space-y-3 text-sm">
+      <h2 class="text-lg font-semibold">5. 控制台密码</h2>
+      <p class="text-xs text-slate-500">修改后所有已登录会话会被踢下线，需要重新登录。</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <input id="pw-current" type="password" placeholder="当前密码" class="border rounded px-3 py-2 text-sm font-mono" autocomplete="current-password" />
+        <input id="pw-new"     type="password" placeholder="新密码（6位以上）" class="border rounded px-3 py-2 text-sm font-mono" autocomplete="new-password" />
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="pw-save" class="bg-slate-900 text-white px-4 py-2 rounded text-sm hover:bg-slate-700">保存新密码</button>
+        <span id="pw-msg" class="text-xs"></span>
+      </div>
+    </section>
+
     <footer class="text-center text-xs text-slate-400 pt-4">
-      kie2api-go · 仅本地使用，请勿暴露 proxy key 至公网。
+      kie2api-go · 不要将控制台端口煥露公网，推荐只在本地或反代后使用。
     </footer>
   </div>
 
@@ -98,9 +129,81 @@
 
     async function api(path, opts) {
       const r = await fetch(path, opts || {});
+      if (r.status === 401) {
+        showLogin();
+        throw new Error('unauthenticated');
+      }
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     }
+
+    function showLogin(msg) {
+      $('app').classList.add('hidden');
+      $('login').classList.remove('hidden');
+      const err = $('login-err');
+      if (msg) { err.textContent = msg; err.classList.remove('hidden'); }
+      else { err.textContent = ''; err.classList.add('hidden'); }
+      setTimeout(() => $('login-pw').focus(), 50);
+    }
+    function hideLogin() {
+      $('login').classList.add('hidden');
+      $('app').classList.remove('hidden');
+    }
+
+    async function tryLogin() {
+      const pw = $('login-pw').value;
+      if (!pw) return;
+      try {
+        const r = await fetch('/api/auth/login', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({password: pw})
+        });
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          showLogin((e.error && e.error.message) || '密码错误');
+          return;
+        }
+        $('login-pw').value = '';
+        hideLogin();
+        await load();
+      } catch (e) {
+        showLogin('登录失败：' + e.message);
+      }
+    }
+
+    $('login-btn').onclick = tryLogin;
+    $('login-pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') tryLogin(); });
+
+    $('logout').onclick = async () => {
+      try { await fetch('/api/auth/logout', {method:'POST'}); } catch {}
+      showLogin('已退出登录');
+    };
+
+    $('pw-save').onclick = async () => {
+      const cur = $('pw-current').value;
+      const nw  = $('pw-new').value;
+      const msg = $('pw-msg');
+      msg.className = 'text-xs text-slate-500';
+      msg.textContent = '保存中...';
+      try {
+        const r = await fetch('/api/auth/password', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({current: cur, new: nw})
+        });
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          msg.className = 'text-xs text-red-600';
+          msg.textContent = (e.error && e.error.message) || '保存失败';
+          return;
+        }
+        $('pw-current').value = ''; $('pw-new').value = '';
+        msg.className = 'text-xs text-green-700';
+        msg.textContent = '已更新，其他会话已被踢下线。';
+      } catch (e) {
+        msg.className = 'text-xs text-red-600';
+        msg.textContent = e.message;
+      }
+    };
 
     function render() {
       const proxyHost = window.location.host.replace(/:\d+$/, '') || 'localhost';
@@ -168,9 +271,18 @@ export ANTHROPIC_MODEL=claude-sonnet-4-6`;
     }
 
     async function load() {
-      state = await api('/api/config');
-      render();
+      try {
+        const st = await fetch('/api/auth/status').then(r => r.json());
+        if (!st.authenticated) { showLogin(); return; }
+        hideLogin();
+        state = await api('/api/config');
+        render();
+      } catch (e) {
+        // showLogin already called by api() on 401
+      }
     }
+
+    load();
 
     $('save-kie').onclick = async () => {
       const k = $('kie-key').value.trim();
@@ -236,8 +348,6 @@ export ANTHROPIC_MODEL=claude-sonnet-4-6`;
       });
       render();
     };
-
-    load();
   </script>
 </body>
 </html>

@@ -41,10 +41,26 @@ func main() {
 
 	console := &handler.Console{Store: store, Upstream: cli}
 	proxy := &handler.Proxy{Store: store, Upstream: cli}
+	webAuth := handler.NewWebAuth(store)
+
+	created, pw, err := webAuth.EnsurePassword()
+	if err != nil {
+		log.Fatalf("init web password: %v", err)
+	}
+	if created {
+		log.Printf("[web] generated initial console password: %s  (saved in %s/config.json)", pw, dir)
+		log.Printf("[web] change it from the console UI after first login.")
+	}
 
 	// --- Web Console (port 3001) ---
 	webMux := http.NewServeMux()
-	webMux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+	// Public endpoints (no auth needed):
+	webMux.HandleFunc("/api/auth/status", webAuth.HandleStatus)
+	webMux.HandleFunc("/api/auth/login", webAuth.HandleLogin)
+	webMux.HandleFunc("/api/auth/logout", webAuth.HandleLogout)
+	// Protected endpoints:
+	webMux.HandleFunc("/api/auth/password", webAuth.Require(webAuth.HandleChangePassword))
+	webMux.HandleFunc("/api/config", webAuth.Require(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			console.HandleGetConfig(w, r)
@@ -53,12 +69,12 @@ func main() {
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
-	})
-	webMux.HandleFunc("/api/proxy-key/regenerate", console.HandleRegenerateKey)
-	webMux.HandleFunc("/api/test", console.HandleTest)
-	webMux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	webMux.HandleFunc("/api/proxy-key/regenerate", webAuth.Require(console.HandleRegenerateKey))
+	webMux.HandleFunc("/api/test", webAuth.Require(console.HandleTest))
+	webMux.HandleFunc("/api/info", webAuth.Require(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"proxy_port":%d}`, *proxyPort)
-	})
+	}))
 	indexFS, _ := fs.Sub(web.FS, ".")
 	webMux.Handle("/", http.FileServer(http.FS(indexFS)))
 
