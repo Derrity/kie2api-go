@@ -241,6 +241,10 @@ func AnthropicToOpenAIChat(req map[string]any, upstreamModel string) map[string]
 
 // OpenAIChatToResponses converts a Chat Completions request to a Responses
 // request shape (model + input array + reasoning + tools).
+//
+// Chat-style assistant messages with `tool_calls` and `role:tool` results are
+// translated to Responses API native items (`function_call` and
+// `function_call_output`) so multi-turn tool use round-trips correctly.
 func OpenAIChatToResponses(req map[string]any, upstreamModel string) map[string]any {
 	out := map[string]any{
 		"model": upstreamModel,
@@ -256,10 +260,31 @@ func OpenAIChatToResponses(req map[string]any, upstreamModel string) map[string]
 			if role == "" {
 				role = "user"
 			}
+
+			// Tool result message → function_call_output item.
+			if role == "tool" {
+				input = append(input, map[string]any{
+					"type":    "function_call_output",
+					"call_id": asString(mm["tool_call_id"]),
+					"output":  flattenContent(mm["content"]),
+				})
+				continue
+			}
+
+			// Assistant message that ONLY contains tool_calls (no text content) →
+			// emit one function_call item per tool_call. Mixed content+tool_calls
+			// falls through and we emit both: a message AND function_call items.
+			toolCalls, _ := mm["tool_calls"].([]any)
+
+			// Build content parts for any text/image content.
 			parts := []map[string]any{}
 			content := mm["content"]
-			if s, ok := content.(string); ok {
-				parts = append(parts, map[string]any{"type": "input_text", "text": s})
+			if s, ok := content.(string); ok && s != "" {
+				if role == "assistant" {
+					parts = append(parts, map[string]any{"type": "output_text", "text": s})
+				} else {
+					parts = append(parts, map[string]any{"type": "input_text", "text": s})
+				}
 			} else if arr, ok := content.([]any); ok {
 				for _, item := range arr {
 					itm, ok := item.(map[string]any)
@@ -267,8 +292,16 @@ func OpenAIChatToResponses(req map[string]any, upstreamModel string) map[string]
 						continue
 					}
 					switch itm["type"] {
-					case "text", "input_text":
-						parts = append(parts, map[string]any{"type": "input_text", "text": asString(itm["text"])})
+					case "text", "input_text", "output_text":
+						txt := asString(itm["text"])
+						if txt == "" {
+							continue
+						}
+						if role == "assistant" {
+							parts = append(parts, map[string]any{"type": "output_text", "text": txt})
+						} else {
+							parts = append(parts, map[string]any{"type": "input_text", "text": txt})
+						}
 					case "image_url", "input_image":
 						url := ""
 						if iu, ok := itm["image_url"].(map[string]any); ok {
@@ -282,10 +315,41 @@ func OpenAIChatToResponses(req map[string]any, upstreamModel string) map[string]
 					}
 				}
 			}
-			if len(parts) == 0 {
-				parts = append(parts, map[string]any{"type": "input_text", "text": flattenContent(content)})
+			if len(parts) > 0 {
+				input = append(input, map[string]any{"role": role, "content": parts})
+			} else if len(toolCalls) == 0 {
+				// Fall back to a flattened text representation if we can't classify
+				// the content but the message has SOMETHING in it.
+				if flat := flattenContent(content); flat != "" {
+					p := map[string]any{"type": "input_text", "text": flat}
+					if role == "assistant" {
+						p["type"] = "output_text"
+					}
+					input = append(input, map[string]any{"role": role, "content": []map[string]any{p}})
+				}
 			}
-			input = append(input, map[string]any{"role": role, "content": parts})
+
+			// Emit function_call items for each tool call on this assistant turn.
+			for _, tc := range toolCalls {
+				tcm, ok := tc.(map[string]any)
+				if !ok {
+					continue
+				}
+				fn, _ := tcm["function"].(map[string]any)
+				if fn == nil {
+					continue
+				}
+				args := asString(fn["arguments"])
+				if args == "" {
+					args = "{}"
+				}
+				input = append(input, map[string]any{
+					"type":      "function_call",
+					"call_id":   asString(tcm["id"]),
+					"name":      asString(fn["name"]),
+					"arguments": args,
+				})
+			}
 		}
 	}
 	out["input"] = input

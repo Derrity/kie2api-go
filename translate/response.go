@@ -145,27 +145,47 @@ func ResponsesResponseToOpenAIChat(resp map[string]any, modelID string) map[stri
 		id = "chatcmpl-" + randID(12)
 	}
 	var text string
+	var toolCalls []map[string]any
 	if out, ok := resp["output"].([]any); ok {
 		for _, item := range out {
 			im, ok := item.(map[string]any)
 			if !ok {
 				continue
 			}
-			if im["type"] != "message" {
-				continue
-			}
-			if cs, ok := im["content"].([]any); ok {
-				for _, c := range cs {
-					cm, ok := c.(map[string]any)
-					if !ok {
-						continue
-					}
-					if cm["type"] == "output_text" {
-						text += asString(cm["text"])
+			switch asString(im["type"]) {
+			case "message":
+				if cs, ok := im["content"].([]any); ok {
+					for _, c := range cs {
+						cm, ok := c.(map[string]any)
+						if !ok {
+							continue
+						}
+						if cm["type"] == "output_text" {
+							text += asString(cm["text"])
+						}
 					}
 				}
+			case "function_call":
+				callID := asString(im["call_id"])
+				if callID == "" {
+					callID = asString(im["id"])
+				}
+				toolCalls = append(toolCalls, map[string]any{
+					"id":   callID,
+					"type": "function",
+					"function": map[string]any{
+						"name":      asString(im["name"]),
+						"arguments": asString(im["arguments"]),
+					},
+				})
 			}
 		}
+	}
+	msg := map[string]any{"role": "assistant", "content": text}
+	finish := "stop"
+	if len(toolCalls) > 0 {
+		msg["tool_calls"] = toolCalls
+		finish = "tool_calls"
 	}
 	out := map[string]any{
 		"id":      id,
@@ -174,8 +194,8 @@ func ResponsesResponseToOpenAIChat(resp map[string]any, modelID string) map[stri
 		"model":   modelID,
 		"choices": []map[string]any{{
 			"index":         0,
-			"message":       map[string]any{"role": "assistant", "content": text},
-			"finish_reason": "stop",
+			"message":       msg,
+			"finish_reason": finish,
 		}},
 	}
 	if usage, ok := resp["usage"].(map[string]any); ok {

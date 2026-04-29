@@ -1,5 +1,7 @@
 package routing
 
+import "strings"
+
 // UpstreamProto identifies which KIE upstream protocol shape a model speaks.
 type UpstreamProto string
 
@@ -57,8 +59,9 @@ var All = []ModelRoute{
 	{ID: "gemini-3-flash", UpstreamPath: "/gemini-3-flash/v1/chat/completions", UpstreamModel: "gemini-3-flash", Proto: ProtoOpenAIChat},
 }
 
-// Find returns the route for an id, or nil.
+// Find returns the route for an id (or any of its known aliases), or nil.
 func Find(id string) *ModelRoute {
+	id = canonical(id)
 	for i := range All {
 		if All[i].ID == id {
 			return &All[i]
@@ -66,6 +69,34 @@ func Find(id string) *ModelRoute {
 	}
 	return nil
 }
+
+// canonical maps common alias spellings to our canonical model id.
+// KIE uses dashes everywhere (e.g. gpt-5-5, claude-sonnet-4-6), but many
+// clients use the marketing-style dots (gpt-5.5, claude-sonnet-4.6).
+// We accept either form.
+func canonical(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return id
+	}
+	if alias, ok := aliasMap[id]; ok {
+		return alias
+	}
+	// Auto-derive: replace dots with dashes within the version segments.
+	// e.g. "gpt-5.4" -> "gpt-5-4", "claude-opus-4.6" -> "claude-opus-4-6",
+	//      "gemini-3.1-pro" -> "gemini-3-1-pro", "gpt-5.3-codex" -> "gpt-5.3-codex" -> "gpt-5-3-codex"
+	dashed := strings.ReplaceAll(id, ".", "-")
+	for i := range All {
+		if All[i].ID == dashed {
+			return dashed
+		}
+	}
+	return id
+}
+
+// aliasMap holds explicit aliases that don't follow the dot-to-dash rule.
+// Populate as new client-side spellings are reported.
+var aliasMap = map[string]string{}
 
 // IDs returns all model ids in declaration order.
 func IDs() []string {

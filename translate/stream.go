@@ -63,10 +63,141 @@ type streamEmitter struct {
 	startedCB  bool // anthropic content block started
 	usage      map[string]any
 	stopReason string
+
+	// Tool call tracking. Keyed by upstream item id so a single delta event
+	// can be matched to the call it belongs to.
+	toolByItem map[string]*toolCall
+	toolOrder  []*toolCall
+	haveTools  bool
+}
+
+type toolCall struct {
+	index  int
+	itemID string
+	callID string
+	name   string
+	startedCB bool // anthropic tool_use block started
 }
 
 func newEmitter(target StreamFormat, modelID string, w *sse.Writer) *streamEmitter {
-	return &streamEmitter{target: target, modelID: modelID, w: w, id: "msg_" + randID(12)}
+	return &streamEmitter{target: target, modelID: modelID, w: w, id: "msg_" + randID(12), toolByItem: map[string]*toolCall{}}
+}
+
+// toolCallStart emits the leading delta announcing a new function tool call.
+func (e *streamEmitter) toolCallStart(itemID, callID, name string) error {
+	if _, ok := e.toolByItem[itemID]; ok {
+		return nil
+	}
+	tc := &toolCall{index: len(e.toolOrder), itemID: itemID, callID: callID, name: name}
+	e.toolByItem[itemID] = tc
+	e.toolOrder = append(e.toolOrder, tc)
+	e.haveTools = true
+	switch e.target {
+	case FmtOpenAIChat:
+		chunk := map[string]any{
+			"id":      "chatcmpl-" + randID(12),
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"model":   e.modelID,
+			"choices": []map[string]any{{
+				"index": 0,
+				"delta": map[string]any{
+					"tool_calls": []map[string]any{{
+						"index":    tc.index,
+						"id":       callID,
+						"type":     "function",
+						"function": map[string]any{"name": name, "arguments": ""},
+					}},
+				},
+			}},
+		}
+		b, _ := json.Marshal(chunk)
+		return e.w.Write("", string(b))
+	case FmtAnthropic:
+		idx := tc.index
+		if e.startedCB {
+			idx = tc.index + 1
+		}
+		start := map[string]any{
+			"type":  "content_block_start",
+			"index": idx,
+			"content_block": map[string]any{
+				"type":  "tool_use",
+				"id":    callID,
+				"name":  name,
+				"input": map[string]any{},
+			},
+		}
+		tc.startedCB = true
+		b, _ := json.Marshal(start)
+		return e.w.Write("content_block_start", string(b))
+	case FmtOpenAIResponses:
+		ev := map[string]any{
+			"type":        "response.output_item.added",
+			"output_index": tc.index,
+			"item": map[string]any{
+				"id":      itemID,
+				"type":    "function_call",
+				"call_id": callID,
+				"name":    name,
+				"arguments": "",
+			},
+		}
+		b, _ := json.Marshal(ev)
+		return e.w.Write("response.output_item.added", string(b))
+	}
+	return nil
+}
+
+func (e *streamEmitter) toolCallArgsDelta(itemID, delta string) error {
+	if delta == "" {
+		return nil
+	}
+	tc := e.toolByItem[itemID]
+	if tc == nil {
+		return nil
+	}
+	switch e.target {
+	case FmtOpenAIChat:
+		chunk := map[string]any{
+			"id":      "chatcmpl-" + randID(12),
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"model":   e.modelID,
+			"choices": []map[string]any{{
+				"index": 0,
+				"delta": map[string]any{
+					"tool_calls": []map[string]any{{
+						"index":    tc.index,
+						"function": map[string]any{"arguments": delta},
+					}},
+				},
+			}},
+		}
+		b, _ := json.Marshal(chunk)
+		return e.w.Write("", string(b))
+	case FmtAnthropic:
+		idx := tc.index
+		if e.startedCB {
+			idx = tc.index + 1
+		}
+		d := map[string]any{
+			"type":  "content_block_delta",
+			"index": idx,
+			"delta": map[string]any{"type": "input_json_delta", "partial_json": delta},
+		}
+		b, _ := json.Marshal(d)
+		return e.w.Write("content_block_delta", string(b))
+	case FmtOpenAIResponses:
+		ev := map[string]any{
+			"type":  "response.function_call_arguments.delta",
+			"item_id": itemID,
+			"delta": delta,
+		}
+		b, _ := json.Marshal(ev)
+		return e.w.Write("response.function_call_arguments.delta", string(b))
+	}
+	return nil
 }
 
 func (e *streamEmitter) start() error {
@@ -183,7 +314,11 @@ func (e *streamEmitter) end() error {
 	case FmtOpenAIChat:
 		fr := e.stopReason
 		if fr == "" {
-			fr = "stop"
+			if e.haveTools {
+				fr = "tool_calls"
+			} else {
+				fr = "stop"
+			}
 		} else {
 			fr = mapStopReason(fr)
 		}
@@ -326,6 +461,28 @@ func drainResponses(body io.Reader, e *streamEmitter) error {
 		switch asString(obj["type"]) {
 		case "response.output_text.delta":
 			if err := e.textDelta(asString(obj["delta"])); err != nil {
+				return err
+			}
+		case "response.output_item.added":
+			item, _ := obj["item"].(map[string]any)
+			if item != nil && asString(item["type"]) == "function_call" {
+				itemID := asString(item["id"])
+				callID := asString(item["call_id"])
+				if callID == "" {
+					callID = itemID
+				}
+				if err := e.toolCallStart(itemID, callID, asString(item["name"])); err != nil {
+					return err
+				}
+				if args := asString(item["arguments"]); args != "" {
+					if err := e.toolCallArgsDelta(itemID, args); err != nil {
+						return err
+					}
+				}
+			}
+		case "response.function_call_arguments.delta":
+			itemID := asString(obj["item_id"])
+			if err := e.toolCallArgsDelta(itemID, asString(obj["delta"])); err != nil {
 				return err
 			}
 		case "response.completed":
