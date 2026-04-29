@@ -31,15 +31,16 @@ var All = []ModelRoute{
 	{ID: "gpt-5-2", UpstreamPath: "/gpt-5-2/v1/chat/completions", UpstreamModel: "gpt-5-2", Proto: ProtoOpenAIChat},
 
 	// --- GPT (OpenAI Responses style) ---
-	{ID: "gpt-5-4", UpstreamPath: "/api/v1/responses", UpstreamModel: "gpt-5-4", Proto: ProtoOpenAIResponses},
-	{ID: "gpt-5-5", UpstreamPath: "/api/v1/responses", UpstreamModel: "gpt-5-5", Proto: ProtoOpenAIResponses},
+	// All Responses-style GPT/Codex models share the unified /codex/v1/responses endpoint.
+	{ID: "gpt-5-4", UpstreamPath: "/codex/v1/responses", UpstreamModel: "gpt-5-4", Proto: ProtoOpenAIResponses},
+	{ID: "gpt-5-5", UpstreamPath: "/codex/v1/responses", UpstreamModel: "gpt-5-5", Proto: ProtoOpenAIResponses},
 
 	// --- GPT Codex family (Responses) ---
-	{ID: "gpt-5-codex", UpstreamPath: "/api/v1/responses", UpstreamModel: "gpt-5-codex", Proto: ProtoOpenAIResponses},
-	{ID: "gpt-5.1-codex", UpstreamPath: "/api/v1/responses", UpstreamModel: "gpt-5.1-codex", Proto: ProtoOpenAIResponses},
-	{ID: "gpt-5.2-codex", UpstreamPath: "/api/v1/responses", UpstreamModel: "gpt-5.2-codex", Proto: ProtoOpenAIResponses},
-	{ID: "gpt-5.3-codex", UpstreamPath: "/api/v1/responses", UpstreamModel: "gpt-5.3-codex", Proto: ProtoOpenAIResponses},
-	{ID: "gpt-5.4-codex", UpstreamPath: "/api/v1/responses", UpstreamModel: "gpt-5.4-codex", Proto: ProtoOpenAIResponses},
+	{ID: "gpt-5-codex", UpstreamPath: "/codex/v1/responses", UpstreamModel: "gpt-5-codex", Proto: ProtoOpenAIResponses},
+	{ID: "gpt-5.1-codex", UpstreamPath: "/codex/v1/responses", UpstreamModel: "gpt-5.1-codex", Proto: ProtoOpenAIResponses},
+	{ID: "gpt-5.2-codex", UpstreamPath: "/codex/v1/responses", UpstreamModel: "gpt-5.2-codex", Proto: ProtoOpenAIResponses},
+	{ID: "gpt-5.3-codex", UpstreamPath: "/codex/v1/responses", UpstreamModel: "gpt-5.3-codex", Proto: ProtoOpenAIResponses},
+	{ID: "gpt-5.4-codex", UpstreamPath: "/codex/v1/responses", UpstreamModel: "gpt-5.4-codex", Proto: ProtoOpenAIResponses},
 
 	// --- Claude (Anthropic Messages) ---
 	{ID: "claude-haiku-4-5", UpstreamPath: "/claude/v1/messages", UpstreamModel: "claude-haiku-4-5", Proto: ProtoAnthropic},
