@@ -52,10 +52,12 @@ var All = []ModelRoute{
 	{ID: "claude-sonnet-4-6", UpstreamPath: "/claude/v1/messages", UpstreamModel: "claude-sonnet-4-6", Proto: ProtoAnthropic},
 
 	// --- Gemini (OpenAI Chat shape) ---
-	{ID: "gemini-2-5-pro", UpstreamPath: "/gemini-2-5-pro/v1/chat/completions", UpstreamModel: "gemini-2-5-pro", Proto: ProtoOpenAIChat},
+	// KIE upstream paths use dotted version segments (e.g. gemini-2.5-pro), even
+	// though we expose dashed canonical ids to clients.
+	{ID: "gemini-2-5-pro", UpstreamPath: "/gemini-2.5-pro/v1/chat/completions", UpstreamModel: "gemini-2.5-pro", Proto: ProtoOpenAIChat},
 	{ID: "gemini-3-pro", UpstreamPath: "/gemini-3-pro/v1/chat/completions", UpstreamModel: "gemini-3-pro", Proto: ProtoOpenAIChat},
-	{ID: "gemini-3-1-pro", UpstreamPath: "/gemini-3-1-pro/v1/chat/completions", UpstreamModel: "gemini-3-1-pro", Proto: ProtoOpenAIChat},
-	{ID: "gemini-2-5-flash", UpstreamPath: "/gemini-2-5-flash/v1/chat/completions", UpstreamModel: "gemini-2-5-flash", Proto: ProtoOpenAIChat},
+	{ID: "gemini-3-1-pro", UpstreamPath: "/gemini-3.1-pro/v1/chat/completions", UpstreamModel: "gemini-3.1-pro", Proto: ProtoOpenAIChat},
+	{ID: "gemini-2-5-flash", UpstreamPath: "/gemini-2.5-flash/v1/chat/completions", UpstreamModel: "gemini-2.5-flash", Proto: ProtoOpenAIChat},
 	{ID: "gemini-3-flash", UpstreamPath: "/gemini-3-flash/v1/chat/completions", UpstreamModel: "gemini-3-flash", Proto: ProtoOpenAIChat},
 }
 

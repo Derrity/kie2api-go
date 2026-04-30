@@ -72,10 +72,10 @@ type streamEmitter struct {
 }
 
 type toolCall struct {
-	index  int
-	itemID string
-	callID string
-	name   string
+	index     int
+	itemID    string
+	callID    string
+	name      string
 	startedCB bool // anthropic tool_use block started
 }
 
@@ -133,13 +133,13 @@ func (e *streamEmitter) toolCallStart(itemID, callID, name string) error {
 		return e.w.Write("content_block_start", string(b))
 	case FmtOpenAIResponses:
 		ev := map[string]any{
-			"type":        "response.output_item.added",
+			"type":         "response.output_item.added",
 			"output_index": tc.index,
 			"item": map[string]any{
-				"id":      itemID,
-				"type":    "function_call",
-				"call_id": callID,
-				"name":    name,
+				"id":        itemID,
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      name,
 				"arguments": "",
 			},
 		}
@@ -190,9 +190,9 @@ func (e *streamEmitter) toolCallArgsDelta(itemID, delta string) error {
 		return e.w.Write("content_block_delta", string(b))
 	case FmtOpenAIResponses:
 		ev := map[string]any{
-			"type":  "response.function_call_arguments.delta",
+			"type":    "response.function_call_arguments.delta",
 			"item_id": itemID,
-			"delta": delta,
+			"delta":   delta,
 		}
 		b, _ := json.Marshal(ev)
 		return e.w.Write("response.function_call_arguments.delta", string(b))
